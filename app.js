@@ -105,7 +105,7 @@ async function refresh(who){
   let ok=true,msg="";
   try{
     let j,emb=false;
-    try{const r=await fetch(`data/${region}.json?`+Date.now(),{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);j=await r.json()}
+    try{let r=await fetch(`data/${region}.json?`+Date.now(),{cache:"no-store"});if(!r.ok)r=await fetch(`${region}.json?`+Date.now(),{cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);j=await r.json()}
     catch(e){if(typeof EMBEDDED!=="undefined"&&EMBEDDED[region]){j=EMBEDDED[region];emb=true}else throw e}
     const oldQ=DATA?qsig(queue):null;
     const sig=(j.meta&&j.meta.contentHash)||(j.lastUpdated+"|"+JSON.stringify(j.fact||"").length+"|"+(j.preset&&Object.keys(j.preset.data||{}).length));
@@ -184,7 +184,7 @@ function tickCd(){document.querySelectorAll(".cd[data-end]").forEach(e=>{const s
 setInterval(tickCd,1000);
 /* екстрені відключення (необов'язковий data/alerts.json) */
 let ALERTS={};
-async function loadAlerts(){try{const r=await fetch("data/alerts.json?"+Date.now(),{cache:"no-store"});if(r.ok){ALERTS=await r.json();renderAlerts()}}catch(e){}}
+async function loadAlerts(){try{const r=await fetch("alerts.json?"+Date.now(),{cache:"no-store"}).then(r=>r.ok?r:fetch("data/alerts.json?"+Date.now(),{cache:"no-store"}));if(r.ok){ALERTS=await r.json();renderAlerts()}}catch(e){}}
 function renderAlerts(){const L=(ALERTS&&ALERTS[region])||[];$("alerts").innerHTML=L.map(x=>`<div class="alert"><span class="ai">⚠</span><div><b>${esc(x.text||"")}</b><small>${esc(x.source||"")}${x.time?", "+esc(x.time):""}</small></div></div>`).join("")}
 function renderStats(group,now){
   const d=dayHours(group,now.date);if(!d){$("stats").innerHTML="";return}
