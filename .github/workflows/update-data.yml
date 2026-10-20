@@ -1,5 +1,7 @@
 name: Update outage data
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -13,6 +15,7 @@ jobs:
       - name: Download schedules
         run: |
           BASE=https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data
+          mkdir -p data
           for f in kyiv kyiv-region; do
             if curl -fsS "$BASE/$f.json" -o "/tmp/$f.json" && jq -e '.preset.data' "/tmp/$f.json" >/dev/null; then
               cp "/tmp/$f.json" "data/$f.json"
@@ -25,4 +28,4 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
           git add data
-          git diff --cached --quiet || (git commit -m "Update outage data" && git push)
+          git diff --cached --quiet || (git commit -m "Update outage data" && git pull --rebase && git push)
