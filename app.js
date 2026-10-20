@@ -48,13 +48,13 @@ function dayHours(group,ds){
   const hours=[];for(let h=1;h<=24;h++)hours.push(MAP[raw[String(h)]]||MAP.yes);
   return {hours,src};
 }
-function ranges(hours){
-  const sl=hours.flat(),out=[];let s=null;
-  sl.forEach((v,i)=>{const off=v==="off";if(off&&s===null)s=i;if(!off&&s!==null){out.push([s,i]);s=null}});
+function ranges(hours,inc){
+  const sl=hours.flat(),out=[];let s=null;inc=inc||["off"];
+  sl.forEach((v,i)=>{const off=inc.includes(v);if(off&&s===null)s=i;if(!off&&s!==null){out.push([s,i]);s=null}});
   if(s!==null)out.push([s,48]);return out;
 }
 const rangeTxt=r=>r.map(([s,e])=>fmt(s)+" - "+(e===48?"24:00":fmt(e))+" <i class=\"rd\">("+dur((e-s)*30)+")</i>").join(" • ");
-function offMin(group,ds){const d=dayHours(group,ds);return d?d.hours.flat().filter(v=>v==="off").length*30:null}
+function offMin(group,ds){const d=dayHours(group,ds);return d?d.hours.flat().filter(v=>v==="off"||(d.src==="preset"&&v==="maybe")).length*30:null}
 function slots3(group,now){const out=[];for(const o of [-1,0,1]){const d=dayHours(group,addDays(now.date,o));out.push(...(d?d.hours.flat():Array(48).fill("on")))}return out}
 const tlabel=j=>{const day=Math.floor(j/48)-1;return fmt(j%48)+(day>0?" завтра":day<0?" вчора":"")};
 function nowStatus(group,now){
@@ -137,7 +137,7 @@ function renderTop(group,now){
   let inner;
   if(m===null)inner=`<div class="mb"><small><span>${label} · ${dm}</span><b>даних немає</b></small></div>`;
   else{const pct=Math.round((1440-m)/1440*100);
-    inner=`<div class="mb"><small><span><b class="dayl">${label}</b> · ${dm} ${mood(pct)}</span><b>${m?"без світла "+dur(m):"без відключень"}</b></small><div class="bt"><div class="bb"><div class="f" style="width:${pct}%"></div><div class="r"></div><em>${pct}% зі світлом</em></div><div class="nub"></div></div></div>`}
+    inner=`<div class="mb"><small><span><b class="dayl">${label}</b> · ${dm} ${mood(pct)}</span><b>${m?(dayHours(group,ds).src==="preset"?"можливо без світла ":"без світла ")+dur(m):"без відключень"}</b></small><div class="bt"><div class="bb"><div class="f" style="width:${pct}%"></div><div class="r"></div><em>${pct}% зі світлом</em></div><div class="nub"></div></div></div>`}
   $("topbar").innerHTML=`<div class="tb-in">${inner}</div>`;
 }
 
@@ -151,8 +151,8 @@ function dayTitle(isToday,ds){return isToday?"Графік на сьогодні
 function renderDay(el,isToday,ds,group,now){
   const d=dayHours(group,ds);
   if(!d){el.innerHTML=`<div class="chead"><span class="ico">${IC.clock}</span><h2>${dayTitle(isToday)}</h2></div><div class="sumbar ok">Даних немає</div>`;return}
-  const r=ranges(d.hours),total=r.reduce((a,[s,e])=>a+(e-s)*30,0);
-  const sum=total?`<div class="sumbar r">⏱ <span>БЕЗ СВІТЛА</span> <b>${dur(total)}</b> • ${rangeTxt(r)}</div>`:`<div class="sumbar ok">✓ Відключень не заплановано</div>`;
+  const pre=d.src==="preset",r=ranges(d.hours,pre?["off","maybe"]:["off"]),total=r.reduce((a,[s,e])=>a+(e-s)*30,0);
+  const sum=total?`<div class="sumbar r">⏱ <span>${pre?"МОЖЛИВО БЕЗ СВІТЛА":"БЕЗ СВІТЛА"}</span> <b>${dur(total)}</b> • ${rangeTxt(r)}</div>`:`<div class="sumbar ok">✓ Відключень не заплановано</div>`;
   const wk=WEATHER&&WEATHER[ds];
   const cells=d.hours.map((h,i)=>{
     const w=wk&&wk[i]?`<span class="wi">${wk[i].i}</span>${wk[i].t}°`:"";
@@ -354,6 +354,23 @@ async function loadAddrIndex(){
   try{const r=await fetch("data/addresses.json?"+Date.now());if(!r.ok)throw 0;ADDR=await r.json()}catch(e){ADDR={}}
 }
 const idx=()=>ADDR&&ADDR[region]||null;
+const LOOKUP="";
+const lookupUrl=()=>(store.get("lookup","")||LOOKUP).trim().replace(/\/$/,"");
+const OPKEY={"kyiv":"kem","kyiv-region":"krem"};
+async function autoFind(){
+  SHEET.err="";SHEET.found=null;
+  const c=SHEET.city.trim(),s=SHEET.street.trim(),h=SHEET.house.trim();
+  if(!c||!s||!h){SHEET.err="Заповніть населений пункт, вулицю і будинок.";renderSheet(true);return}
+  SHEET.busy=true;renderSheet(true);
+  try{
+    const r=await fetch(`${lookupUrl()}/?op=${OPKEY[region]}&city=${encodeURIComponent(c)}&street=${encodeURIComponent(s)}&house=${encodeURIComponent(h)}`);
+    const j=await r.json();
+    SHEET.busy=false;
+    if(j.queue){SHEET.queue=j.queue;findQueue();return}
+    SHEET.err=(j.error||"Черга не знайдена")+(j.houses?". Будинки на вулиці: "+j.houses.slice(0,12).join(", "):"");
+  }catch(e){SHEET.busy=false;SHEET.err="Сервер пошуку недоступний: "+String(e&&e.message||e).slice(0,50)}
+  renderSheet(true);
+}
 function groupsList(){return DATA?Object.keys(DATA.preset.data).sort((a,b)=>parseFloat(a.slice(3))-parseFloat(b.slice(3))):[]}
 function sugList(kind){
   const I=idx();if(!I)return [];
@@ -377,7 +394,9 @@ function renderSheet(keep){
   ${fld("street","Вулиця","Почніть вводити",cityOk?null:"Спочатку оберіть населений пункт")}
   ${fld("house","Будинок","Напр. 16-А",streetOk?null:"Спочатку оберіть вулицю")}
   ${manual?`<div class="fld"><label>Черга (з сайту оператора)</label><select data-f="queue"><option value="">Оберіть чергу</option>${groupsList().map(g=>`<option value="${g}" ${SHEET.queue===g?"selected":""}>${g.replace("GPV","")}</option>`).join("")}</select></div>`:""}
+  ${lookupUrl()?`<button class="find ready" data-auto="1" ${SHEET.busy?"disabled":""}>${IC.search} ${SHEET.busy?"Шукаю…":"Знайти чергу автоматично"}</button>`:""}
   <button class="find ${ready?"ready":""}" data-find="1">${IC.search} ${manual?"Зберегти адресу":"Знайти чергу"}</button>
+  <details class="srv"><summary>Автопошук (налаштування)</summary><div class="fld"><label>Адреса сервера пошуку (Cloudflare Worker)</label><input data-f="lookup" value="${esc(store.get("lookup","")||LOOKUP)}" placeholder="https://svitlo.твій-акаунт.workers.dev" autocomplete="off"></div></details>
   ${SHEET.err?`<div class="warn">${esc(SHEET.err)}</div>`:""}
   ${SHEET.found?`<div class="found"><b>Знайдено адресу</b>${esc(addrText(SHEET.found))}<br><span class="qchip">Черга ${SHEET.found.queue.replace("GPV","")}</span></div>`:""}
   <div class="warn">${manual?`Автоматична база адрес ще не підключена. Дізнайтеся свою чергу на <a href="${DTEK[region]}" target="_blank" rel="noopener">сайті оператора</a> і збережіть її тут — далі додаток сам відкриватиметься на вашій черзі.`:"Дані для пошуку адреси беруться з офіційного сайту оператора. Якщо вашої адреси немає у списку, зверніться до свого постачальника/оператора."}</div>
@@ -442,6 +461,7 @@ document.addEventListener("click",e=>{
   if(t.closest("[data-close]")||t.id==="sheet"){closeSheet();return}
   const pk=t.closest("[data-pick]");
   if(pk){const k=pk.dataset.pick;SHEET[k]=pk.dataset.v;if(k==="city"){SHEET.street="";SHEET.house=""}if(k==="street")SHEET.house="";SHEET.err="";SHEET.found=null;renderSheet(false);const nx={city:"street",street:"house"}[k];if(nx){const el=$("sheet").querySelector(`[data-f="${nx}"]`);if(el){el.focus();showSug(nx)}}return}
+  if(t.closest("[data-auto]")){autoFind();return}
   if(t.closest("[data-find]")){findQueue();return}
   const au=t.closest("[data-au]");
   if(au){const L=getAddrs(),a=L.find(x=>x.id===au.dataset.au);if(a){L.forEach(x=>{if(x.region===a.region)x.active=x.id===a.id});setAddrs(L);queue=a.queue;store.set("queue_"+region,queue);render();closeSheet();window.scrollTo({top:0})}return}
@@ -453,6 +473,7 @@ document.addEventListener("input",e=>{
   const f=e.target.dataset&&e.target.dataset.f;if(!f)return;
   if(f==="queue"){SHEET.queue=e.target.value;renderSheet(true);return}
   if(f==="label"){SHEET.label=e.target.value;return}
+  if(f==="lookup"){store.set("lookup",e.target.value.trim());return}
   SHEET[f]=e.target.value;SHEET.err="";SHEET.found=null;
   if(f==="city"){const I=idx();if(!I||!I[SHEET.city]){SHEET.street="";SHEET.house=""}}
   if(f==="street"){const I=idx();if(!I||!(I[SHEET.city]&&I[SHEET.city][SHEET.street]))SHEET.house=""}
