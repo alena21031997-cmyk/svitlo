@@ -354,23 +354,6 @@ async function loadAddrIndex(){
   try{const r=await fetch("data/addresses.json?"+Date.now());if(!r.ok)throw 0;ADDR=await r.json()}catch(e){ADDR={}}
 }
 const idx=()=>ADDR&&ADDR[region]||null;
-const LOOKUP="";
-const lookupUrl=()=>(store.get("lookup","")||LOOKUP).trim().replace(/\/$/,"");
-const OPKEY={"kyiv":"kem","kyiv-region":"krem"};
-async function autoFind(){
-  SHEET.err="";SHEET.found=null;
-  const c=SHEET.city.trim(),s=SHEET.street.trim(),h=SHEET.house.trim();
-  if(!c||!s||!h){SHEET.err="Заповніть населений пункт, вулицю і будинок.";renderSheet(true);return}
-  SHEET.busy=true;renderSheet(true);
-  try{
-    const r=await fetch(`${lookupUrl()}/?op=${OPKEY[region]}&city=${encodeURIComponent(c)}&street=${encodeURIComponent(s)}&house=${encodeURIComponent(h)}`);
-    const j=await r.json();
-    SHEET.busy=false;
-    if(j.queue){SHEET.queue=j.queue;findQueue();return}
-    SHEET.err=(j.error||"Черга не знайдена")+(j.houses?". Будинки на вулиці: "+j.houses.slice(0,12).join(", "):"");
-  }catch(e){SHEET.busy=false;SHEET.err="Сервер пошуку недоступний: "+String(e&&e.message||e).slice(0,50)}
-  renderSheet(true);
-}
 function groupsList(){return DATA?Object.keys(DATA.preset.data).sort((a,b)=>parseFloat(a.slice(3))-parseFloat(b.slice(3))):[]}
 function sugList(kind){
   const I=idx();if(!I)return [];
@@ -394,9 +377,7 @@ function renderSheet(keep){
   ${fld("street","Вулиця","Почніть вводити",cityOk?null:"Спочатку оберіть населений пункт")}
   ${fld("house","Будинок","Напр. 16-А",streetOk?null:"Спочатку оберіть вулицю")}
   ${manual?`<div class="fld"><label>Черга (з сайту оператора)</label><select data-f="queue"><option value="">Оберіть чергу</option>${groupsList().map(g=>`<option value="${g}" ${SHEET.queue===g?"selected":""}>${g.replace("GPV","")}</option>`).join("")}</select></div>`:""}
-  ${lookupUrl()?`<button class="find ready" data-auto="1" ${SHEET.busy?"disabled":""}>${IC.search} ${SHEET.busy?"Шукаю…":"Знайти чергу автоматично"}</button>`:""}
   <button class="find ${ready?"ready":""}" data-find="1">${IC.search} ${manual?"Зберегти адресу":"Знайти чергу"}</button>
-  <details class="srv"><summary>Автопошук (налаштування)</summary><div class="fld"><label>Адреса сервера пошуку (Cloudflare Worker)</label><input data-f="lookup" value="${esc(store.get("lookup","")||LOOKUP)}" placeholder="https://svitlo.твій-акаунт.workers.dev" autocomplete="off"></div></details>
   ${SHEET.err?`<div class="warn">${esc(SHEET.err)}</div>`:""}
   ${SHEET.found?`<div class="found"><b>Знайдено адресу</b>${esc(addrText(SHEET.found))}<br><span class="qchip">Черга ${SHEET.found.queue.replace("GPV","")}</span></div>`:""}
   <div class="warn">${manual?`Автоматична база адрес ще не підключена. Дізнайтеся свою чергу на <a href="${DTEK[region]}" target="_blank" rel="noopener">сайті оператора</a> і збережіть її тут — далі додаток сам відкриватиметься на вашій черзі.`:"Дані для пошуку адреси беруться з офіційного сайту оператора. Якщо вашої адреси немає у списку, зверніться до свого постачальника/оператора."}</div>
@@ -461,7 +442,6 @@ document.addEventListener("click",e=>{
   if(t.closest("[data-close]")||t.id==="sheet"){closeSheet();return}
   const pk=t.closest("[data-pick]");
   if(pk){const k=pk.dataset.pick;SHEET[k]=pk.dataset.v;if(k==="city"){SHEET.street="";SHEET.house=""}if(k==="street")SHEET.house="";SHEET.err="";SHEET.found=null;renderSheet(false);const nx={city:"street",street:"house"}[k];if(nx){const el=$("sheet").querySelector(`[data-f="${nx}"]`);if(el){el.focus();showSug(nx)}}return}
-  if(t.closest("[data-auto]")){autoFind();return}
   if(t.closest("[data-find]")){findQueue();return}
   const au=t.closest("[data-au]");
   if(au){const L=getAddrs(),a=L.find(x=>x.id===au.dataset.au);if(a){L.forEach(x=>{if(x.region===a.region)x.active=x.id===a.id});setAddrs(L);queue=a.queue;store.set("queue_"+region,queue);render();closeSheet();window.scrollTo({top:0})}return}
@@ -473,7 +453,6 @@ document.addEventListener("input",e=>{
   const f=e.target.dataset&&e.target.dataset.f;if(!f)return;
   if(f==="queue"){SHEET.queue=e.target.value;renderSheet(true);return}
   if(f==="label"){SHEET.label=e.target.value;return}
-  if(f==="lookup"){store.set("lookup",e.target.value.trim());return}
   SHEET[f]=e.target.value;SHEET.err="";SHEET.found=null;
   if(f==="city"){const I=idx();if(!I||!I[SHEET.city]){SHEET.street="";SHEET.house=""}}
   if(f==="street"){const I=idx();if(!I||!(I[SHEET.city]&&I[SHEET.city][SHEET.street]))SHEET.house=""}
